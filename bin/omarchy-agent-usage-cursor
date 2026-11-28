@@ -314,10 +314,13 @@ def summarize_limits(period: dict[str, Any], plan_info: dict[str, Any] | None = 
   totalSpend/limit reads well past 100% while Cursor's own meters do not.
 
   Every meter runs on the billing cycle, unless the plan says its included
-  allowance is weekly. The included total is the Monthly (or Weekly) row;
-  the model meters and the on-demand budget are titled after it, so the
-  panel attaches them to that row rather than showing four rows that each
-  read "Monthly". The on-demand budget always runs on the billing cycle.
+  allowance is weekly. The two included pools are their own rows, named as
+  the spending page names them: Cursor Models (autoPercentUsed, the included
+  Cursor Grok and Composer pool) and Other Models (apiPercentUsed). A plan
+  that names neither falls back to the included total as the Monthly (or
+  Weekly) row. The on-demand budget always runs on the billing cycle and is
+  its own row: its title names the dollars, so the panel does not fold it
+  into either pool.
   """
   plan = usage_section(period, "planUsage")
   spend = usage_section(period, "spendLimitUsage")
@@ -328,12 +331,13 @@ def summarize_limits(period: dict[str, Any], plan_info: dict[str, Any] | None = 
   limits = []
 
   for label, title, key in (
-    ("Included total", window, "totalPercentUsed"),
-    ("Auto models", f"Auto models {window}", "autoPercentUsed"),
-    ("Named models", f"Named models {window}", "apiPercentUsed"),
+    ("Cursor Models", "Cursor Models", "autoPercentUsed"),
+    ("Other Models", "Other Models", "apiPercentUsed"),
   ):
     if key in plan:
       limits.append({"label": label, "title": title, "percent": fraction(plan.get(key)), "resetsAt": included_resets_at})
+  if not limits and "totalPercentUsed" in plan:
+    limits.append({"label": "Included total", "title": window, "percent": fraction(plan.get("totalPercentUsed")), "resetsAt": included_resets_at})
 
   limit_cents = number(spend.get("individualLimit"))
   if limit_cents > 0:

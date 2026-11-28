@@ -186,6 +186,7 @@ Panel {
           for (var m = 0; m < starterPrompts.length; m++) line.push({ kind: "make:" + starterPrompts[m].kind, index: p })
         else if (launches(providers[p]))
           line.push({ kind: "makeToggle", index: p })
+        if (providers[p].providerId === "cursor") line.push({ kind: "providerUsage", index: p })
         if (desktopFor(providers[p])) line.push({ kind: "providerDesktop", index: p })
         line.push({ kind: stop, index: p })
         rows.push(line)
@@ -272,7 +273,7 @@ Panel {
   // The agent a cursor stop belongs to, or -1.
   function lineOf(target) {
     if (!target) return -1
-    if (["provider", "providerSignin", "providerLaunch", "providerStar", "makeToggle", "providerDesktop",
+    if (["provider", "providerSignin", "providerLaunch", "providerStar", "makeToggle", "providerDesktop", "providerUsage",
          "localUpdate", "localShare", "localToggle", "localLogs"].indexOf(target.kind) >= 0 || target.kind.indexOf("make:") === 0) return target.index
     return -1
   }
@@ -1239,6 +1240,12 @@ Panel {
     Util.execArgv(["uwsm-app", "--", "gtk-launch", entry.id + ".desktop"])
   }
 
+  // Cursor's spending page, where Cursor Models and Other Models are listed.
+  function openCursorUsage() {
+    root.close()
+    Util.execArgv(["omarchy-launch-browser", "https://cursor.com/dashboard/spending"])
+  }
+
   // Starts a line's agent, or has it make `kind` when one is given, first
   // switching to the line's account when it isn't the one in use.
   function runLine(line, kind) {
@@ -1273,6 +1280,7 @@ Panel {
     else if (target.kind === "providerStar") makeDefault(providers[target.index], providers[target.index].account || null)
     else if (target.kind === "makeToggle") openMakes(target.index)
     else if (target.kind === "providerDesktop") launchDesktop(providers[target.index])
+    else if (target.kind === "providerUsage") openCursorUsage()
     else if (target.kind.indexOf("make:") === 0) runLine(providers[target.index], target.kind.slice(5))
     else if (target.kind === "starter") startPrompt(starterPrompts[target.index].kind)
     else if (target.kind === "providerSignin") signInAgain(providers[target.index], providers[target.index].account || null)
@@ -1593,6 +1601,8 @@ Panel {
     if (value === "Session") return Commons.I18n.t("agents.windowSession")
     if (value === "Weekly") return Commons.I18n.t("agents.windowWeekly")
     if (value === "Monthly") return Commons.I18n.t("agents.windowMonthly")
+    if (value === "Cursor Models") return Commons.I18n.t("agents.windowCursorModels")
+    if (value === "Other Models") return Commons.I18n.t("agents.windowOtherModels")
     if (value === "Spend limit") return Commons.I18n.t("agents.windowSpendLimit")
     if (value === "Limit") return Commons.I18n.t("agents.windowLimit")
     var part = scopedPart(value)
@@ -3180,6 +3190,22 @@ Panel {
           onClicked: root.launchDesktop(section.provider)
         }
 
+        // Cursor's usage page on the web. Shown with the other line buttons,
+        // once the pointer or the keys are on this section.
+        PanelActionButton {
+          outlined: true
+          id: sectionUsage
+          anchors.verticalCenter: parent.verticalCenter
+          visible: section.provider && section.provider.providerId === "cursor" && section.engaged
+          iconText: "󰏌"
+          tooltipText: Commons.I18n.t("agents.openCursorUsage")
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          hasCursor: root.hasKey("providerUsage", section.providerIndex)
+          onHovered: function(isHovered) { if (isHovered) root.hoverAt("providerUsage", section.providerIndex) }
+          onClicked: root.openCursorUsage()
+        }
+
           // Making something with this line's agent, as the starter tiles do
           // with the default: one sparkles icon on the line in use, which opens
           // into the four.
@@ -3802,10 +3828,17 @@ Panel {
       }
     }
 
+    TextMetrics {
+      id: compactTitleMetrics
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      text: Commons.I18n.t("agents.windowCursorModels")
+    }
+
     Text {
       id: compactTitle
       textFormat: Text.PlainText
-      width: parent.width * 0.3
+      width: Math.max(parent.width * 0.3, Math.ceil(compactTitleMetrics.advanceWidth))
       anchors.verticalCenter: parent.verticalCenter
       text: compact.window ? root.windowDisplayTitle(compact.window.title) : ""
       color: root.foreground
@@ -3816,12 +3849,37 @@ Panel {
 
     Meter {
       anchors.left: compactTitle.right
-      anchors.right: compactValue.left
-      anchors.rightMargin: Style.space(20)
+      anchors.right: compactPercent.left
+      anchors.rightMargin: Style.space(12)
       anchors.verticalCenter: parent.verticalCenter
       value: compact.window ? compact.window.percent : -1
       alarming: compact.alarming
       markers: compact.scoped
+    }
+
+    TextMetrics {
+      id: compactPercentMetrics
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
+      text: Commons.I18n.t("agents.meterPercent").arg(Commons.I18n.formatNumber(100))
+    }
+
+    // The share used, beside the bar. The reset stays on the right.
+    Text {
+      id: compactPercent
+      width: Math.ceil(compactPercentMetrics.advanceWidth)
+      anchors.right: compactValue.left
+      anchors.rightMargin: Style.space(10)
+      anchors.verticalCenter: parent.verticalCenter
+      visible: !!compact.window && compact.window.percent >= 0
+      textFormat: Text.PlainText
+      horizontalAlignment: Text.AlignRight
+      text: visible
+        ? Commons.I18n.t("agents.meterPercent").arg(Commons.I18n.formatNumber(Math.round(compact.window.percent * 100)))
+        : ""
+      color: root.dim
+      font.family: root.fontFamily
+      font.pixelSize: Style.font.bodySmall
     }
 
     // Sized to the widest time left ("19h 40m"), so every meter ends in the
@@ -3833,8 +3891,7 @@ Panel {
       text: "00h 00m"
     }
 
-    // How long until the window resets. The meter says how full it is; the
-    // exact percentage is in the row's tooltip.
+    // How long until the window resets.
     Text {
       id: compactValue
       width: Math.ceil(compactValueMetrics.advanceWidth)
